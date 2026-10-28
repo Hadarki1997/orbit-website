@@ -25,6 +25,8 @@
   let pending = null;
   let busy = false;
   let timeout;
+  let statusPollTimers = [];
+  let pollSerial = 0;
   let captchaWidget;
   let captchaToken = '';
   function resetCaptcha() {
@@ -64,9 +66,52 @@
   }
   function finish() {
     clearTimeout(timeout);
+    statusPollTimers.forEach(clearTimeout);
+    statusPollTimers = [];
+    pollSerial++;
     busy = false;
     button.disabled = protectedMode && !captchaToken;
     form.removeAttribute('aria-busy');
+  }
+  // Check whether Apps Script saved this UUID. This works even if Google's iframe reply is blocked.
+  // The server returns ONLY a boolean for an unguessable request ID, never lead details.
+  function checkSaved(id, serial) {
+    if (!busy || !pending || pending.id !== id || serial !== pollSerial) return;
+    const callbackName = 'orbitStatus_' + id.replace(/-/g, '');
+    const script = document.createElement('script');
+    const cleanup = () => { delete window[callbackName]; script.remove(); };
+    const guard = setTimeout(cleanup, 7000);
+    window[callbackName] = data => {
+      clearTimeout(guard);
+      cleanup();
+      if (!busy || !pending || pending.id !== id || serial !== pollSerial) return;
+      if (data && data.requestId === id && data.saved === true) {
+        completeSuccess();
+      }
+    };
+    script.onerror = () => { clearTimeout(guard); cleanup(); };
+    script.src = config.endpoint + '?action=orbitStatus&requestId=' + encodeURIComponent(id)
+      + '&callback=' + encodeURIComponent(callbackName) + '&_=' + Date.now();
+    document.head.appendChild(script);
+  }
+  function startStatusPolling(id) {
+    const serial = ++pollSerial;
+    [2500, 6000, 12000, 22000, 34000].forEach(delay => {
+      statusPollTimers.push(setTimeout(() => checkSaved(id, serial), delay));
+    });
+  }
+  function completeSuccess() {
+    finish();
+    resetCaptcha();
+    pending = null;
+    form.reset();
+    form.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
+    const phoneError = document.getElementById('phoneError');
+    if (phoneError) phoneError.hidden = true;
+    show('הפנייה התקבלה ונשמרה. תודה שפניתם! אחזור אליכם בקרוב.', true);
+    status.tabIndex = -1;
+    status.focus({ preventScroll: true });
+    status.scrollIntoView({ block: 'center', behavior: 'auto' });
   }
   function hidden(name, value) {
     let input = form.querySelector('input[name="' + name + '"]');
@@ -125,6 +170,7 @@
     button.disabled = true;
     form.setAttribute('aria-busy', 'true');
     show('שולחים את הפנייה וממתינים לאישור קליטה…');
+    startStatusPolling(pending.id);
     timeout = setTimeout(() => {
       finish();
       resetCaptcha();
@@ -145,8 +191,10 @@
     const data = event.data;
     if (!trustedOrigin || !pending || !data || data.type !== 'orbit-contact-result'
       || data.requestId !== pending.id || typeof data.ok !== 'boolean') return;
-    finish();
-    resetCaptcha();
+    if (!data.ok) {
+      finish();
+      resetCaptcha();
+    }
     if (!data.ok) {
       const messages = {
         captcha: 'האימות לא אושר או שפג תוקפו. השלימו אותו שוב ונסו לשלוח.',
@@ -157,14 +205,6 @@
       show(messages[data.code] || 'הפנייה לא הושלמה. בדקו את הפרטים ונסו שוב.');
       return;
     }
-    pending = null;
-    form.reset();
-    form.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
-    const phoneError = document.getElementById('phoneError');
-    if (phoneError) phoneError.hidden = true;
-    show('הפנייה התקבלה ונשמרה. תודה שפניתם! אחזור אליכם בקרוב.', true);
-    status.tabIndex = -1;
-    status.focus({ preventScroll: true });
-    status.scrollIntoView({ block: 'center', behavior: 'auto' });
+    completeSuccess();
   });
 })();
