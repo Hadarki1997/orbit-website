@@ -16,6 +16,59 @@
     return;
   }
   form.removeAttribute('onsubmit');
+  // עיצוב אנימציית הטעינה
+const loadingStyle = document.createElement('style');
+
+loadingStyle.textContent = `
+  .orbit-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px;
+    text-align: center;
+    color: #4B3022;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .orbit-loading small {
+    font-size: 14px;
+    color: #5B4637;
+  }
+
+  .orbit-spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border: 3px solid #E5D5C2;
+    border-top-color: #B85C3C;
+    border-radius: 50%;
+    animation: orbit-spin 0.8s linear infinite;
+  }
+
+  @keyframes orbit-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .orbit-spinner {
+      animation: none;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .orbit-loading {
+      flex-direction: column;
+      gap: 8px;
+    }
+  }
+`;
+
+document.head.appendChild(loadingStyle);
   button.disabled = protectedMode;
   const frame = document.createElement('iframe');
   frame.name = 'orbit-contact-response';
@@ -169,7 +222,16 @@
     busy = true;
     button.disabled = true;
     form.setAttribute('aria-busy', 'true');
-    show('שולחים את הפנייה וממתינים לאישור קליטה…');
+    // הצגת הודעת טעינה עם אנימציה
+status.classList.remove('form-status-success');
+
+status.innerHTML = `
+  <span class="orbit-loading" role="status">
+    <span class="orbit-spinner" aria-hidden="true"></span>
+    <span>מעבירה את הפנייה שלך בצורה מאובטחת...<br>
+    <small>התהליך עשוי להימשך מספר שניות. אין צורך ללחוץ שוב.</small></span>
+  </span>
+`;
     startStatusPolling(pending.id);
     timeout = setTimeout(() => {
       finish();
